@@ -8,7 +8,7 @@ name: Render lessons
 # Only schedule/manual triggers: forks and pull requests can never run this or see secrets.
 on:
   schedule:
-    - cron: "20 */2 * * *"   # every 2 hours; finds nothing to do -> exits in about a minute
+    - cron: "20 * * * *"     # every hour; finds nothing to do -> exits in about a minute
   workflow_dispatch:
 
 permissions:
@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        slot: [1, 2]          # two lessons in parallel per run
+        slot: [1, 2, 3]       # three lessons in parallel per run (renders overlap across runs; free plan allows 20 jobs)
     env:
       GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
       QUEUE_REPO: decentralizedRK/ai-youtube-channel
@@ -32,6 +32,7 @@ jobs:
         with:
           repository: decentralizedRK/ai-youtube-channel
           token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          fetch-depth: 0   # full history: the queue compares script edits with render dates
 
       - uses: actions/setup-python@v5
         with:
