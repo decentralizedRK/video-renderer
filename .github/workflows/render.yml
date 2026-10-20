@@ -43,6 +43,10 @@ jobs:
         id: claim
         run: python pipeline/render_queue.py claim "public-${{ github.run_id }}-${{ matrix.slot }}" > /dev/null
 
+      # Node, FFmpeg, HyperFrames CLI + headless Chrome (composite action from the private repo); only when there's work
+      - if: steps.claim.outputs.folder != ''
+        uses: ./.github/actions/setup-hyperframes
+
       - name: Render (output kept private in a file)
         if: steps.claim.outputs.folder != ''
         env:
