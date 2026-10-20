@@ -1,0 +1,62 @@
+name: Render lessons
+
+# Free-minute render farm for the private repo decentralizedRK/ai-youtube-channel.
+# This public repo holds NO content and NO publishing credentials: each job checks out the
+# private repo with a fine-grained token, claims the next queued lesson, renders it and
+# publishes the result as a Release on the PRIVATE repo, which then uploads to YouTube.
+# Logs are public, so render output is kept in a file and only its tail is shown on failure.
+# Only schedule/manual triggers: forks and pull requests can never run this or see secrets.
+on:
+  schedule:
+    - cron: "20 */2 * * *"   # every 2 hours; finds nothing to do -> exits in about a minute
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      matrix:
+        slot: [1, 2]          # two lessons in parallel per run
+    env:
+      GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      QUEUE_REPO: decentralizedRK/ai-youtube-channel
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      RENDER_WORKERS: auto
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: decentralizedRK/ai-youtube-channel
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -q -r requirements.txt
+
+      - name: Claim the next lesson
+        id: claim
+        run: python pipeline/render_queue.py claim "public-${{ github.run_id }}-${{ matrix.slot }}" > /dev/null
+
+      - name: Render (output kept private in a file)
+        if: steps.claim.outputs.folder != ''
+        env:
+          F: ${{ steps.claim.outputs.folder }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID }}
+        run: |
+          if ! { python pipeline/validate_script.py "scripts/$F/script.json" && python pipeline/run_daily.py render "$F"; } > render.log 2>&1; then
+            echo "Render failed; last lines:"; tail -n 25 render.log; exit 1
+          fi
+          bash tools/publish_release.sh "$F" "$QUEUE_REPO" > /dev/null
+          echo "Rendered and released lesson ${{ matrix.slot }}."
+
+      - name: Put the lesson back in the queue
+        if: failure() && steps.claim.outputs.folder != ''
+        run: python pipeline/render_queue.py release "${{ steps.claim.outputs.folder }}"
